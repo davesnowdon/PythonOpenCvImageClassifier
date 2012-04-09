@@ -1,0 +1,6 @@
+* Introduction
+An example which uses python and the python bindings to OpenCV and
+ImageMagick to attempt to categorise images from a webcomic
+
+I use Megatokyo for this example, but the same approach should work for any
+collection of images which exhibits distinct drawing styles.

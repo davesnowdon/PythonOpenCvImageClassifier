@@ -7,15 +7,18 @@ import os
 import sys
 import fnmatch
 import getopt
+import urllib2
 
 import PythonMagick
 
 import cv
 
 MEGATOKYO_DIR = '/opt/data/library/fiction/megatokyo'
+MEGATOKYO_BASE_URL = 'http://megatokyo.com/strips/'
 COMIC_IMAGES_SUBDIR = 'comic'
 UNWANTED_IMAGES_SUBDIR = 'dontread'
 NUM_BINS = 64
+BUF_LEN = 65536
 
 def get_src_images(basedir):
     imagefiles = []
@@ -52,6 +55,47 @@ def get_images(basedir):
             convert_image_to_png(basedir, f)
         images.append(fpng)
     return images
+
+def most_recent(imagelist):
+    max = 0
+    for i in imagelist:
+        b = int(os.path.splitext(i)[0])
+        if b > max:
+            max = b
+    return max
+
+def download_file(base_url, fname, outputdir):
+    try:
+        r = urllib2.Request(url=base_url+fname)
+        response = urllib2.urlopen(r)
+
+        f = open(outputdir + "/" + fname, "wb")
+        while True:
+            buf = response.read(BUF_LEN)
+            if 0 == len(buf):
+                break
+            f.write(buf)
+        
+        f.close()
+        return fname
+    except urllib2.HTTPError:
+        return None
+
+# Look for images to load after the most recent one on disk
+def get_new_images(base_url, outputdir, most_recent):
+    new_images = []
+    imagenum = most_recent + 1
+
+    while True:
+        i = download_file(base_url, str(imagenum)+'.gif', outputdir)
+        if i is None:
+            i = download_file(base_url, str(imagenum)+'.jpg', outputdir)
+            if i is None:
+                break
+        convert_image_to_png(outputdir, i)
+        new_images.append(i)
+        imagenum = imagenum + 1
+    return new_images
     
 def make_histogram(imagefile):
     col = cv.LoadImageM(imagefile)
@@ -84,6 +128,12 @@ def main(argv=None):
         print "Base dir = " + basedir
         
         ims = get_images(basedir)
+        most_recent_on_disk_comic = most_recent(ims)
+        print "Most recent comic on disk is: "+ str(most_recent_on_disk_comic)
+        
+        new_ims = get_new_images(MEGATOKYO_BASE_URL, basedir, most_recent_on_disk_comic)
+        print "Downloaded "+str(len(new_ims))+" images"
+        
         for im in ims:
             h = make_histogram(basedir +'/'+ im)
             print im, " : ", h

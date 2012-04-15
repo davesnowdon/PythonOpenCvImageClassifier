@@ -1,7 +1,11 @@
 '''
-Created on Feb 19, 2012
+Webcomic scanner
 
-@author: dns
+Usage: megatokyo BASE_DIR BASE_URL
+BASE_DIR = where saved images are stored on disk
+BASE_URL = where to look for comic images
+
+@author: Dave Snowdon
 '''
 import os
 import sys
@@ -13,8 +17,6 @@ import PythonMagick
 
 import cv
 
-MEGATOKYO_DIR = '/opt/data/library/fiction/megatokyo'
-MEGATOKYO_BASE_URL = 'http://megatokyo.com/strips/'
 COMIC_IMAGES_SUBDIR = 'comic'
 UNWANTED_IMAGES_SUBDIR = 'dontread'
 NUM_BINS = 64
@@ -102,10 +104,14 @@ def make_histogram(imagefile):
     gray = cv.CreateImage(cv.GetSize(col), cv.IPL_DEPTH_8U, 1)
     cv.CvtColor(col, gray, cv.CV_RGB2GRAY)
     
-    hist = cv.CreateHist([NUM_BINS], cv.CV_HIST_ARRAY)
-    cv.CalcHist(gray, hist)
+    hist = cv.CreateHist([NUM_BINS], cv.CV_HIST_ARRAY, [[0,255]], 1)
+    cv.CalcHist([gray], hist)
+    cv.NormalizeHist(hist, 1.0)
     return hist
 
+def make_link(basedir, subdir, name):
+    os.chdir(basedir)
+    os.symlink('../'+name, subdir+'/'+name)
 
 class Usage(Exception):
     def __init__(self, msg):
@@ -126,17 +132,23 @@ def main(argv=None):
             raise Usage("Missing base path")
         basedir = args[0].strip()
         print "Base dir = " + basedir
+        baseurl = args[1].strip()
+        print "Base url = " + baseurl
         
         ims = get_images(basedir)
         most_recent_on_disk_comic = most_recent(ims)
         print "Most recent comic on disk is: "+ str(most_recent_on_disk_comic)
         
-        new_ims = get_new_images(MEGATOKYO_BASE_URL, basedir, most_recent_on_disk_comic)
+        new_ims = get_new_images(baseurl, basedir, most_recent_on_disk_comic)
         print "Downloaded "+str(len(new_ims))+" images"
         
         for im in ims:
             h = make_histogram(basedir +'/'+ im)
-            print im, " : ", h
+            hv = []
+            for i in range(NUM_BINS):
+                hv.append(cv.QueryHistValue_1D(h, i))
+            print im, " : ", str(hv)
+            break
     except Usage, err:
         print >>sys.stderr, err.msg
         print >>sys.stderr, "for help use --help"

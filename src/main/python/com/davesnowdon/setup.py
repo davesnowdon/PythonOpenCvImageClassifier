@@ -9,7 +9,7 @@ import getopt
 
 from megatokyo import Usage, make_link
 
-dontread = [ '0031', '0045', '0065', '0076', '0082', '0086', '0093', '0104', '0130', '0170', '0186', '0191', '0227', '0228', '0242', '0257', '0265', '0279', '0320', '0328', '0361', '0388', '0411' ]
+dontread = [ '0031', '0045', '0065', '0076', '0082', '0086', '0093', '0104', '0130', '0170', '0186', '0191', '0227', '0228', '0242', '0257', '0265', '0279', '0302', '0315', '0320', '0328', '0361', '0388', '0411' ]
 
 def make_categories(negative):
     positive = []
@@ -26,7 +26,7 @@ def make_categories(negative):
     return { 'comic' : positive, 'dontread' : negative}
 
 def make_links(basedir, categories):
-    for k in categories:
+    for k in categories.keys():
         vs = categories[k]
         for v in vs:
             make_link(basedir, k, v+".png")

@@ -16,6 +16,8 @@ import urllib2
 import PythonMagick
 
 import cv
+import opencv.ml as ml
+import numpy as np
 
 COMIC_IMAGES_SUBDIR = 'comic'
 UNWANTED_IMAGES_SUBDIR = 'dontread'
@@ -109,9 +111,90 @@ def make_histogram(imagefile):
     cv.NormalizeHist(hist, 1.0)
     return hist
 
+def make_histograms(basedir, images):
+    hmap = {}
+    for im in images:
+        fn = basedir +'/'+im
+        hmap[im] = make_histogram(fn)
+    return hmap
+
 def make_link(basedir, subdir, name):
     os.chdir(basedir)
     os.symlink('../'+name, subdir+'/'+name)
+
+# from http://stackoverflow.com/questions/8687885/python-opencv-svm-implementation
+class StatModel(object):
+    '''parent class - starting point to add abstraction'''    
+    def load(self, fn):
+        self.model.load(fn)
+    def save(self, fn):
+        self.model.save(fn)
+
+# adapted from http://stackoverflow.com/questions/8687885/python-opencv-svm-implementation
+class SVM(StatModel):
+    '''wrapper for OpenCV SimpleVectorMachine algorithm'''
+    def __init__(self):
+        self.model = ml.CvSVM()
+        
+    def train(self, samples, responses):
+        #setting algorithm parameters
+        params = dict( kernel_type = ml.CvSVM.LINEAR, 
+                       svm_type = ml.CvSVM.C_SVC,
+                       C = 1 )
+        self.model.train(samples, responses,  params)
+
+    def predict(self, samples):
+        return np.float32( [self.model.predict(s) for s in samples])
+
+
+# train a support vector machine to recognize the images based on histograms
+def learn(classified, histograms):
+    inames = {}
+    c = 0
+    for k in classified.keys():
+        inames[k] = c
+        c = c + 1
+    
+    samples = []
+    responses = []
+    for c in classified.keys():
+        cim = classified[c]
+        idx = inames[c]
+        for im in cim:
+            samples.append(histograms[im])
+            responses.append(idx)
+        
+    clf = SVM()
+    clf.train(samples, responses)
+    return clf
+
+def classify(basedir, category_names):
+    all_images = get_images(basedir)
+    all_classified_images = []
+    classified = {}
+    for c in category_names:
+        pimg = get_png_images(basedir+'/'+c)
+        classified[c] = pimg
+        for im in pimg:
+            all_classified_images.append(im)
+    
+    # now need to find the images which are not classified yet
+    unclassified = []
+    for i in all_images:
+        if i not in all_classified_images:
+            unclassified.append(i)
+    
+    # make histograms of all images
+    hmap = make_histograms(basedir, all_images)
+    clf = learn(classified, hmap)
+    
+    usamples = []
+    for u in unclassified:
+        usamples.append(hmap[u])
+    
+    predictions = clf.predict(usamples)
+    print str(predictions)
+    
 
 class Usage(Exception):
     def __init__(self, msg):
@@ -139,16 +222,18 @@ def main(argv=None):
         most_recent_on_disk_comic = most_recent(ims)
         print "Most recent comic on disk is: "+ str(most_recent_on_disk_comic)
         
-        new_ims = get_new_images(baseurl, basedir, most_recent_on_disk_comic)
-        print "Downloaded "+str(len(new_ims))+" images"
+        #new_ims = get_new_images(baseurl, basedir, most_recent_on_disk_comic)
+        #print "Downloaded "+str(len(new_ims))+" images"
         
-        for im in ims:
-            h = make_histogram(basedir +'/'+ im)
-            hv = []
-            for i in range(NUM_BINS):
-                hv.append(cv.QueryHistValue_1D(h, i))
-            print im, " : ", str(hv)
-            break
+        classify(basedir, ['comic', 'dontread'])
+        
+#        for im in ims:
+#            h = make_histogram(basedir +'/'+ im)
+#            hv = []
+#            for i in range(NUM_BINS):
+#                hv.append(cv.QueryHistValue_1D(h, i))
+#            print im, " : ", str(hv)
+#            break
     except Usage, err:
         print >>sys.stderr, err.msg
         print >>sys.stderr, "for help use --help"

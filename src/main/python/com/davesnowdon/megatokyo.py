@@ -16,8 +16,9 @@ import urllib2
 import PythonMagick
 
 import cv
-import opencv.ml as ml
-import numpy as np
+from PyML import VectorDataSet
+from PyML import SVM
+
 
 COMIC_IMAGES_SUBDIR = 'comic'
 UNWANTED_IMAGES_SUBDIR = 'dontread'
@@ -122,70 +123,31 @@ def make_link(basedir, subdir, name):
     os.chdir(basedir)
     os.symlink('../'+name, subdir+'/'+name)
 
-
-class SVM:
-    '''wrapper for OpenCV SimpleVectorMachine algorithm'''
-    def __init__(self):
-        self.model = None
-    
-    def make_keys(self, keys):
-        self.inames = {} # map key to index
-        self.namei = []  # map index to key
-        c = 0
-        for k in keys:
-            self.inames[k] = c
-            self.namei.append(k)
-            c = c + 1
-    
-    def key_to_index(self, k):
-        return self.inames[k]
-    
-    def index_to_key(self, i):
-        return self.namei[i]
-        
-    def train(self, samples, responses):
-        #setting algorithm parameters
-        params = ml.CvSVMParams()
-        params.kernel_type = ml.CvSVM.LINEAR
-        params.svm_type = ml.CvSVM.C_SVC
-        params.C = 1
-        
-        self.model = ml.CvSVM()
-        s = cv.CreateMat(1, NUM_BINS, cv.CV_32FC1)
-        cv.Set(s, 1.0)
-        v = cv.CreateMat(1, NUM_BINS, cv.CV_32FC1)
-        cv.Set(v, 1.0)
-        self.model.train(samples, responses, s, v,  params)
-
-    def predict(self, samples):
-        return np.float32( [self.model.predict(s) for s in samples])
-
-
 # train a support vector machine to recognize the images based on histograms
 def learn(classified, histograms):
     clf = SVM()
-    clf.make_keys(classified.keys())
+
     
     total_samples = 0
     for c in classified.keys():
         cim = classified[c]
         total_samples = total_samples + len(cim)
         
-    samples = cv.CreateMat(total_samples, NUM_BINS, cv.CV_32FC1)
-    responses = cv.CreateMat(total_samples, 1, cv.CV_32FC1)
-    i = 0
+    samples = []
+    labels = []
     for c in classified.keys():
         cim = classified[c]
-        idx = clf.key_to_index(c)
         for im in cim:
             hist = histograms[im]
+            row = []
             for j in range(NUM_BINS):
-                samples[i, j] = cv.QueryHistValue_1D(hist, j)
-            responses[i, 0] = idx
-        i = i + 1
-        
+                row.append(cv.QueryHistValue_1D(hist, j))
+            samples.append(row)
+            labels.append(c)
 
-    clf.train(samples, responses)
+    data = VectorDataSet(samples, L=labels)
+    print str(data)
+    clf.train(data)
     return clf
 
 def classify(basedir, category_names):
@@ -210,10 +172,23 @@ def classify(basedir, category_names):
     
     usamples = []
     for u in unclassified:
-        usamples.append(hmap[u])
+        hist = hmap[u]
+        row = []
+        for j in range(NUM_BINS):
+            row.append(cv.QueryHistValue_1D(hist, j))
+        usamples.append(row)
     
-    predictions = clf.predict(usamples)
-    print str(predictions)
+    data = VectorDataSet(usamples, patternID=unclassified)
+    results = clf.test(data)
+    
+    patterns = results.getPatternID()
+    labels = results.getPredictedLabels()
+
+    # make map of image name to predicted label
+    lmap = {}
+    for i in range(len(patterns)):
+        lmap[patterns[i]] = labels[i]
+    return lmap
     
 
 class Usage(Exception):
@@ -242,18 +217,18 @@ def main(argv=None):
         most_recent_on_disk_comic = most_recent(ims)
         print "Most recent comic on disk is: "+ str(most_recent_on_disk_comic)
         
-        #new_ims = get_new_images(baseurl, basedir, most_recent_on_disk_comic)
-        #print "Downloaded "+str(len(new_ims))+" images"
+        new_ims = get_new_images(baseurl, basedir, most_recent_on_disk_comic)
+        print "Downloaded "+str(len(new_ims))+" images"
         
-        classify(basedir, ['comic', 'dontread'])
-        
-#        for im in ims:
-#            h = make_histogram(basedir +'/'+ im)
-#            hv = []
-#            for i in range(NUM_BINS):
-#                hv.append(cv.QueryHistValue_1D(h, i))
-#            print im, " : ", str(hv)
-#            break
+        if len(new_ims) == 0:
+            print "No new images to classify"
+        else:
+            labels = classify(basedir, ['comic', 'dontread'])
+            print "Results for new images\n"
+            for n in new_ims:
+                p = convert_file_name_to_png(n)
+                print p + " -> " + labels[p]
+
     except Usage, err:
         print >>sys.stderr, err.msg
         print >>sys.stderr, "for help use --help"

@@ -122,26 +122,40 @@ def make_link(basedir, subdir, name):
     os.chdir(basedir)
     os.symlink('../'+name, subdir+'/'+name)
 
-# from http://stackoverflow.com/questions/8687885/python-opencv-svm-implementation
-class StatModel(object):
-    '''parent class - starting point to add abstraction'''    
-    def load(self, fn):
-        self.model.load(fn)
-    def save(self, fn):
-        self.model.save(fn)
 
-# adapted from http://stackoverflow.com/questions/8687885/python-opencv-svm-implementation
-class SVM(StatModel):
+class SVM:
     '''wrapper for OpenCV SimpleVectorMachine algorithm'''
     def __init__(self):
-        self.model = ml.CvSVM()
+        self.model = None
+    
+    def make_keys(self, keys):
+        self.inames = {} # map key to index
+        self.namei = []  # map index to key
+        c = 0
+        for k in keys:
+            self.inames[k] = c
+            self.namei.append(k)
+            c = c + 1
+    
+    def key_to_index(self, k):
+        return self.inames[k]
+    
+    def index_to_key(self, i):
+        return self.namei[i]
         
     def train(self, samples, responses):
         #setting algorithm parameters
-        params = dict( kernel_type = ml.CvSVM.LINEAR, 
-                       svm_type = ml.CvSVM.C_SVC,
-                       C = 1 )
-        self.model.train(samples, responses,  params)
+        params = ml.CvSVMParams()
+        params.kernel_type = ml.CvSVM.LINEAR
+        params.svm_type = ml.CvSVM.C_SVC
+        params.C = 1
+        
+        self.model = ml.CvSVM()
+        s = cv.CreateMat(1, NUM_BINS, cv.CV_32FC1)
+        cv.Set(s, 1.0)
+        v = cv.CreateMat(1, NUM_BINS, cv.CV_32FC1)
+        cv.Set(v, 1.0)
+        self.model.train(samples, responses, s, v,  params)
 
     def predict(self, samples):
         return np.float32( [self.model.predict(s) for s in samples])
@@ -149,22 +163,28 @@ class SVM(StatModel):
 
 # train a support vector machine to recognize the images based on histograms
 def learn(classified, histograms):
-    inames = {}
-    c = 0
-    for k in classified.keys():
-        inames[k] = c
-        c = c + 1
+    clf = SVM()
+    clf.make_keys(classified.keys())
     
-    samples = []
-    responses = []
+    total_samples = 0
     for c in classified.keys():
         cim = classified[c]
-        idx = inames[c]
-        for im in cim:
-            samples.append(histograms[im])
-            responses.append(idx)
+        total_samples = total_samples + len(cim)
         
-    clf = SVM()
+    samples = cv.CreateMat(total_samples, NUM_BINS, cv.CV_32FC1)
+    responses = cv.CreateMat(total_samples, 1, cv.CV_32FC1)
+    i = 0
+    for c in classified.keys():
+        cim = classified[c]
+        idx = clf.key_to_index(c)
+        for im in cim:
+            hist = histograms[im]
+            for j in range(NUM_BINS):
+                samples[i, j] = cv.QueryHistValue_1D(hist, j)
+            responses[i, 0] = idx
+        i = i + 1
+        
+
     clf.train(samples, responses)
     return clf
 
